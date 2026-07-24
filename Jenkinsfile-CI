@@ -1,0 +1,108 @@
+pipeline {
+
+    agent any
+
+    tools {
+        maven 'maven'
+    }
+
+    environment {
+        IMAGE_NAME = "rakshithaj657/springboot-app"
+    }
+
+    stages {
+
+        stage('Prepare') {
+            steps {
+                echo 'Preparing workspace...'
+                cleanWs()
+                checkout scm
+            }
+        }
+
+        stage('Build') {
+            steps {
+                echo 'Building Spring Boot application...'
+                sh 'mvn clean package -DskipTests'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                echo 'Building Docker image...'
+
+                sh '''
+                    docker build \
+                    -t $IMAGE_NAME:$BUILD_NUMBER .
+                '''
+            }
+        }
+
+        stage('Docker Hub Login') {
+            steps {
+
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'dockerhub-creds',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_TOKEN'
+                    )
+                ]) {
+
+                    sh '''
+                    echo "$DOCKER_TOKEN" | \
+                    docker login \
+                    -u "$DOCKER_USER" \
+                    --password-stdin
+                    '''
+                }
+            }
+        }
+
+        stage('Tag Image') {
+            steps {
+
+                sh '''
+                    docker tag \
+                    $IMAGE_NAME:$BUILD_NUMBER \
+                    $IMAGE_NAME:latest
+                '''
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+
+                sh '''
+                    docker push $IMAGE_NAME:$BUILD_NUMBER
+                    docker push $IMAGE_NAME:latest
+                '''
+            }
+        }
+    }
+
+    post {
+
+        success {
+            echo "Image pushed successfully."
+            echo "Image: ${IMAGE_NAME}:${BUILD_NUMBER}"
+        }
+
+        failure {
+            echo "CI Pipeline failed."
+        }
+
+        always {
+
+            sh '''
+                docker image rm \
+                $IMAGE_NAME:$BUILD_NUMBER || true
+
+                docker image rm \
+                $IMAGE_NAME:latest || true
+            '''
+
+            cleanWs()
+        }
+    }
+}

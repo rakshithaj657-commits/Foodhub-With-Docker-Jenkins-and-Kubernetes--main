@@ -1,0 +1,10 @@
+.git/
+.mvn/
+mvnw
+mvnw.cmd
+.vscode/
+.idea/
+mysql-data/
+*.log
+Dockerfile
+.dockerignore

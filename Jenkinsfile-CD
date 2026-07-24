@@ -1,0 +1,183 @@
+pipeline {
+
+    agent any
+
+    parameters {
+
+        choice(
+            name: 'ACTION',
+            choices: [
+                'DEPLOY_APP',
+                'DEPLOY_DB',
+                'REMOVE_APP',
+                'REMOVE_DB'
+            ],
+            description: 'Select Kubernetes operation'
+        )
+
+        string(
+            name: 'IMAGE_TAG',
+            defaultValue: 'latest',
+            description: 'Docker image tag for application deployment'
+        )
+    }
+
+    environment {
+        NAMESPACE = "prod"
+        IMAGE_NAME = "rakshithaj657/springboot-app"
+    }
+
+    stages {
+
+        stage('Prepare') {
+            steps {
+                echo 'Preparing CD pipeline...'
+
+                cleanWs()
+
+                checkout scm
+
+                sh 'kubectl version --client'
+            }
+        }
+
+
+        stage('Deploy Database') {
+
+            when {
+                expression {
+                    params.ACTION == 'DEPLOY_DB'
+                }
+            }
+
+            steps {
+
+                echo 'Deploying MySQL...'
+
+                sh '''
+                    kubectl apply -f k8s/mysql-pv.yaml
+
+                    kubectl apply -f k8s/mysql-secret.yaml
+
+                    kubectl apply -f k8s/mysql-pvc.yaml
+
+                    kubectl apply -f k8s/mysql-service.yaml
+
+                    kubectl apply -f k8s/mysql-statefulset.yaml
+                '''
+
+                sh '''
+                    kubectl rollout status \
+                    statefulset/mysql \
+                    -n $NAMESPACE \
+                    --timeout=180s
+                '''
+            }
+        }
+
+
+        stage('Deploy Application') {
+
+            when {
+                expression {
+                    params.ACTION == 'DEPLOY_APP'
+                }
+            }
+
+            steps {
+
+                echo "Deploying application image: ${IMAGE_NAME}:${params.IMAGE_TAG}"
+
+                sh '''
+                    kubectl apply \
+                    -f k8s/app-deployment.yaml
+
+                    kubectl apply \
+                    -f k8s/app-service.yaml
+                '''
+
+                sh """
+                    kubectl set image \
+                    deployment/springboot-app \
+                    springboot-app=${IMAGE_NAME}:${params.IMAGE_TAG} \
+                    -n ${NAMESPACE}
+                """
+
+                sh '''
+                    kubectl rollout status \
+                    deployment/springboot-app \
+                    -n $NAMESPACE \
+                    --timeout=180s
+                '''
+            }
+        }
+
+
+        stage('Remove Application') {
+
+            when {
+                expression {
+                    params.ACTION == 'REMOVE_APP'
+                }
+            }
+
+            steps {
+
+                echo 'Removing Spring Boot application...'
+
+                sh '''
+                    kubectl delete \
+                    -f k8s/app-service.yaml \
+                    --ignore-not-found
+
+                    kubectl delete \
+                    -f k8s/app-deployment.yaml \
+                    --ignore-not-found
+                '''
+            }
+        }
+
+
+        stage('Remove Database') {
+
+            when {
+                expression {
+                    params.ACTION == 'REMOVE_DB'
+                }
+            }
+
+            steps {
+
+                echo 'Removing MySQL workload...'
+
+                sh '''
+                    kubectl delete \
+                    -f k8s/mysql-statefulset.yaml \
+                    --ignore-not-found
+
+                    kubectl delete \
+                    -f k8s/mysql-service.yaml \
+                    --ignore-not-found
+                '''
+
+                echo 'PVC and PV were NOT deleted to protect database data.'
+            }
+        }
+    }
+
+
+    post {
+
+        success {
+            echo "CD operation ${params.ACTION} completed successfully."
+        }
+
+        failure {
+            echo "CD operation ${params.ACTION} failed."
+        }
+
+        always {
+            echo 'CD Pipeline completed.'
+        }
+    }
+}
