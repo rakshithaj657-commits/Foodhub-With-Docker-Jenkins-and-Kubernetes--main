@@ -22,7 +22,7 @@ pipeline {
     }
 
     environment {
-        NAMESPACE = "production"
+        NAMESPACE = "prod"
         IMAGE_NAME = "rakshithaj657/springboot-app"
     }
 
@@ -33,9 +33,8 @@ pipeline {
                 echo 'Preparing CD pipeline...'
                 cleanWs()
                 checkout scm
-                withKubeConfig([credentialsId: 'kubernetes']) {
+                withKubeConfig([credentialsId: 'kubeconfig-cred']) {
                     sh 'kubectl version --client'
-                    sh 'kubectl apply -f k8s/namespace.yaml'
                 }
             }
         }
@@ -46,15 +45,17 @@ pipeline {
             }
             steps {
                 echo 'Deploying MySQL...'
-                withKubeConfig([credentialsId: 'kubernetes']) {
+                withKubeConfig([credentialsId: 'kubeconfig-cred']) {
                     sh '''
-                        kubectl apply -f k8s/db-pv-pvc.yaml
-                        kubectl apply -f k8s/db-service.yaml
-                        kubectl apply -f k8s/db-statefulset.yaml
+                        kubectl apply -f k8s/mysql-pv.yaml
+                        kubectl apply -f k8s/mysql-secret.yaml
+                        kubectl apply -f k8s/mysql-pvc.yaml
+                        kubectl apply -f k8s/mysql-service.yaml
+                        kubectl apply -f k8s/mysql-statefulset.yaml
                     '''
                     sh '''
                         kubectl rollout status \
-                        statefulset/mysql-db \
+                        statefulset/mysql \
                         -n $NAMESPACE \
                         --timeout=180s
                     '''
@@ -68,7 +69,7 @@ pipeline {
             }
             steps {
                 echo "Deploying application image: ${IMAGE_NAME}:${params.IMAGE_TAG}"
-                withKubeConfig([credentialsId: 'kubernetes']) {
+                withKubeConfig([credentialsId: 'kubeconfig-cred']) {
                     sh '''
                         kubectl apply -f k8s/app-deployment.yaml
                         kubectl apply -f k8s/app-service.yaml
@@ -95,7 +96,7 @@ pipeline {
             }
             steps {
                 echo 'Removing Spring Boot application...'
-                withKubeConfig([credentialsId: 'kubernetes']) {
+                withKubeConfig([credentialsId: 'kubeconfig-cred']) {
                     sh '''
                         kubectl delete -f k8s/app-service.yaml --ignore-not-found
                         kubectl delete -f k8s/app-deployment.yaml --ignore-not-found
@@ -110,10 +111,10 @@ pipeline {
             }
             steps {
                 echo 'Removing MySQL workload...'
-                withKubeConfig([credentialsId: 'kubernetes']) {
+                withKubeConfig([credentialsId: 'kubeconfig-cred']) {
                     sh '''
-                        kubectl delete -f k8s/db-statefulset.yaml --ignore-not-found
-                        kubectl delete -f k8s/db-service.yaml --ignore-not-found
+                        kubectl delete -f k8s/mysql-statefulset.yaml --ignore-not-found
+                        kubectl delete -f k8s/mysql-service.yaml --ignore-not-found
                     '''
                 }
                 echo 'PVC and PV were NOT deleted to protect database data.'
