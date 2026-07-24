@@ -3,7 +3,6 @@ pipeline {
     agent any
 
     parameters {
-
         choice(
             name: 'ACTION',
             choices: [
@@ -23,7 +22,7 @@ pipeline {
     }
 
     environment {
-        NAMESPACE = "prod"
+        NAMESPACE = "production"
         IMAGE_NAME = "rakshithaj657/springboot-app"
     }
 
@@ -32,150 +31,103 @@ pipeline {
         stage('Prepare') {
             steps {
                 echo 'Preparing CD pipeline...'
-
                 cleanWs()
-
                 checkout scm
-
-                sh 'kubectl version --client'
+                withKubeConfig([credentialsId: 'kubernetes']) {
+                    sh 'kubectl version --client'
+                    sh 'kubectl apply -f k8s/namespace.yaml'
+                }
             }
         }
-
 
         stage('Deploy Database') {
-
             when {
-                expression {
-                    params.ACTION == 'DEPLOY_DB'
+                expression { params.ACTION == 'DEPLOY_DB' }
+            }
+            steps {
+                echo 'Deploying MySQL...'
+                withKubeConfig([credentialsId: 'kubernetes']) {
+                    sh '''
+                        kubectl apply -f k8s/db-pv-pvc.yaml
+                        kubectl apply -f k8s/db-service.yaml
+                        kubectl apply -f k8s/db-statefulset.yaml
+                    '''
+                    sh '''
+                        kubectl rollout status \
+                        statefulset/mysql-db \
+                        -n $NAMESPACE \
+                        --timeout=180s
+                    '''
                 }
             }
-
-            steps {
-
-                echo 'Deploying MySQL...'
-
-                sh '''
-                    kubectl apply -f k8s/mysql-pv.yaml
-
-                    kubectl apply -f k8s/mysql-secret.yaml
-
-                    kubectl apply -f k8s/mysql-pvc.yaml
-
-                    kubectl apply -f k8s/mysql-service.yaml
-
-                    kubectl apply -f k8s/mysql-statefulset.yaml
-                '''
-
-                sh '''
-                    kubectl rollout status \
-                    statefulset/mysql \
-                    -n $NAMESPACE \
-                    --timeout=180s
-                '''
-            }
         }
-
 
         stage('Deploy Application') {
-
             when {
-                expression {
-                    params.ACTION == 'DEPLOY_APP'
+                expression { params.ACTION == 'DEPLOY_APP' }
+            }
+            steps {
+                echo "Deploying application image: ${IMAGE_NAME}:${params.IMAGE_TAG}"
+                withKubeConfig([credentialsId: 'kubernetes']) {
+                    sh '''
+                        kubectl apply -f k8s/app-deployment.yaml
+                        kubectl apply -f k8s/app-service.yaml
+                    '''
+                    sh """
+                        kubectl set image \
+                        deployment/springboot-app \
+                        springboot-app=${IMAGE_NAME}:${params.IMAGE_TAG} \
+                        -n ${NAMESPACE}
+                    """
+                    sh '''
+                        kubectl rollout status \
+                        deployment/springboot-app \
+                        -n $NAMESPACE \
+                        --timeout=180s
+                    '''
                 }
             }
-
-            steps {
-
-                echo "Deploying application image: ${IMAGE_NAME}:${params.IMAGE_TAG}"
-
-                sh '''
-                    kubectl apply \
-                    -f k8s/app-deployment.yaml
-
-                    kubectl apply \
-                    -f k8s/app-service.yaml
-                '''
-
-                sh """
-                    kubectl set image \
-                    deployment/springboot-app \
-                    springboot-app=${IMAGE_NAME}:${params.IMAGE_TAG} \
-                    -n ${NAMESPACE}
-                """
-
-                sh '''
-                    kubectl rollout status \
-                    deployment/springboot-app \
-                    -n $NAMESPACE \
-                    --timeout=180s
-                '''
-            }
         }
-
 
         stage('Remove Application') {
-
             when {
-                expression {
-                    params.ACTION == 'REMOVE_APP'
-                }
+                expression { params.ACTION == 'REMOVE_APP' }
             }
-
             steps {
-
                 echo 'Removing Spring Boot application...'
-
-                sh '''
-                    kubectl delete \
-                    -f k8s/app-service.yaml \
-                    --ignore-not-found
-
-                    kubectl delete \
-                    -f k8s/app-deployment.yaml \
-                    --ignore-not-found
-                '''
+                withKubeConfig([credentialsId: 'kubernetes']) {
+                    sh '''
+                        kubectl delete -f k8s/app-service.yaml --ignore-not-found
+                        kubectl delete -f k8s/app-deployment.yaml --ignore-not-found
+                    '''
+                }
             }
         }
 
-
         stage('Remove Database') {
-
             when {
-                expression {
-                    params.ACTION == 'REMOVE_DB'
-                }
+                expression { params.ACTION == 'REMOVE_DB' }
             }
-
             steps {
-
                 echo 'Removing MySQL workload...'
-
-                sh '''
-                    kubectl delete \
-                    -f k8s/mysql-statefulset.yaml \
-                    --ignore-not-found
-
-                    kubectl delete \
-                    -f k8s/mysql-service.yaml \
-                    --ignore-not-found
-                '''
-
+                withKubeConfig([credentialsId: 'kubernetes']) {
+                    sh '''
+                        kubectl delete -f k8s/db-statefulset.yaml --ignore-not-found
+                        kubectl delete -f k8s/db-service.yaml --ignore-not-found
+                    '''
+                }
                 echo 'PVC and PV were NOT deleted to protect database data.'
             }
         }
     }
 
-
     post {
-
         success {
             echo "CD operation ${params.ACTION} completed successfully."
         }
-
         failure {
             echo "CD operation ${params.ACTION} failed."
         }
-
         always {
             echo 'CD Pipeline completed.'
         }
