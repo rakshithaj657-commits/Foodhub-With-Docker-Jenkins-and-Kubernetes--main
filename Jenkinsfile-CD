@@ -33,7 +33,7 @@ pipeline {
                 echo 'Preparing CD pipeline...'
                 cleanWs()
                 checkout scm
-                withKubeConfig([credentialsId: 'kubeconfig-cred']) {
+                withKubeConfig([credentialsId: 'kubernetes']) {
                     sh 'kubectl version --client'
                 }
             }
@@ -45,7 +45,7 @@ pipeline {
             }
             steps {
                 echo 'Deploying MySQL...'
-                withKubeConfig([credentialsId: 'kubeconfig-cred']) {
+                withKubeConfig([credentialsId: 'kubernetes']) {
                     sh '''
                         kubectl apply -f k8s/mysql-pv.yaml
                         kubectl apply -f k8s/mysql-secret.yaml
@@ -69,7 +69,7 @@ pipeline {
             }
             steps {
                 echo "Deploying application image: ${IMAGE_NAME}:${params.IMAGE_TAG}"
-                withKubeConfig([credentialsId: 'kubeconfig-cred']) {
+                withKubeConfig([credentialsId: 'kubernetes']) {
                     sh '''
                         kubectl apply -f k8s/app-deployment.yaml
                         kubectl apply -f k8s/app-service.yaml
@@ -96,7 +96,7 @@ pipeline {
             }
             steps {
                 echo 'Removing Spring Boot application...'
-                withKubeConfig([credentialsId: 'kubeconfig-cred']) {
+                withKubeConfig([credentialsId: 'kubernetes']) {
                     sh '''
                         kubectl delete -f k8s/app-service.yaml --ignore-not-found
                         kubectl delete -f k8s/app-deployment.yaml --ignore-not-found
@@ -111,7 +111,7 @@ pipeline {
             }
             steps {
                 echo 'Removing MySQL workload...'
-                withKubeConfig([credentialsId: 'kubeconfig-cred']) {
+                withKubeConfig([credentialsId: 'kubernetes']) {
                     sh '''
                         kubectl delete -f k8s/mysql-statefulset.yaml --ignore-not-found
                         kubectl delete -f k8s/mysql-service.yaml --ignore-not-found
