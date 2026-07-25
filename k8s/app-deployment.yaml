@@ -25,7 +25,7 @@ spec:
 
         - name: springboot-app
 
-          image: rakshithaj657/springboot-app:latest
+          image: rakshithaj657/springboot-app:IMAGE_TAG_PLACEHOLDER
 
           imagePullPolicy: Always
 
